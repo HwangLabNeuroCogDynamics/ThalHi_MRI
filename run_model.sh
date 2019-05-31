@@ -55,9 +55,9 @@ mkdir /data/backed_up/shared/ThalHi_MRI/Results/sub-20190409
 -stim_times 2 /data/backed_up/shared/ThalHi_MRI/ScanLogs/D001_MB2_Switch_stimtime.1D 'TENT(0, 15.75, 9)' -stim_label 2 Switch \
 -iresp 1 /data/backed_up/shared/ThalHi_MRI/Results/sub-20190409/MB2_Stay_FIR.nii.gz \
 -iresp 2 /data/backed_up/shared/ThalHi_MRI/Results/sub-20190409/MB2_Switch_FIR.nii.gz \
--gltsym 'SYM: +1*Switch[ -1*Stay[ ' -glt_label 1 MB2_Switch-Stay \
--gltsym 'SYM: +1*Stay[ ' -glt_label 2 MB2_Stay \
--gltsym 'SYM: +1*Switch[ ' -glt_label 3 MB2_Switch \
+-gltsym 'SYM: +1*Switch -1*Stay' -glt_label 1 MB2_Switch-Stay \
+-gltsym 'SYM: +1*Stay' -glt_label 2 MB2_Stay \
+-gltsym 'SYM: +1*Switch' -glt_label 3 MB2_Switch \
 -rout \
 -tout \
 -bucket /data/backed_up/shared/ThalHi_MRI/Results/sub-20190409/MB2_FIRmodel_stats.nii.gz \
