@@ -425,9 +425,66 @@ for cond in conditions:
 
 
 
-####################################################
-#### Use resting-state FC as the FC matrix
+########################################################################################################
+#### Use resting-state FC as the FC matrix for activity flow
+########################################################################################################
+MGH_fn = '/home/kahwang/bsh/MGH/MGH/*/MNINonLinear/rfMRI_REST_ncsreg.nii.gz'
+MGH_files = glob.glob(MGH_fn)
 
+def rsfc(input):
+    file = input[0]
+    subcortical_mask = input[1]
+    cortex_masker = input[2]
+    functional_data = nib.load(file)
+
+    functional_data = nilearn.image.resample_to_img(functional_data, subcortical_mask)
+    cortex_ts = cortex_masker.fit_transform(functional_data)
+    subcortical_ts = masking.apply_mask(functional_data, subcortical_mask)
+
+    # remove censored timepoints
+    mts = np.mean(cortex_ts, axis = 1)
+    if any(mts==0):
+        del_i = np.where(mts==0)
+        cortex_ts = np.delete(cortex_ts, del_i, axis = 0)
+        subcortical_ts = np.delete(subcortical_ts, del_i, axis = 0)
+
+    # now try principal compoment regression
+    pca = PCA(239)
+    reduced_mat = pca.fit_transform(subcortical_ts) # Time X components
+    components = pca.components_
+    regrmodel = LinearRegression()
+    reg = regrmodel.fit(reduced_mat, cortex_ts) #cortex ts also time by ROI
+    #project regression betas from component
+    fcmat = pca.inverse_transform(reg.coef_).T
+
+    return fcmat
+
+pool = multiprocessing.Pool(36)
+rsfc_results = pool.map(rsfc, zip(MGH_files, [thalamus_mask] * len(MGH_files), [cortex_masker] * len(MGH_files)))
+pool.close()
+pool.join()
+
+rsfc_corrmat = np.zeros((len(MGH_files),2473,400))
+for ir, res in enumerate(rsfc_results):
+    rsfc_corrmat[ir, :,:] = res
+rsfc_avemat = np.mean(rsfc_corrmat, axis=0)
+
+# resting-state thalamocortical FC activityflow
+print("correlation between observed and predicted cortical evoked pattern, using rsfc")
+print(" ")
+conditions = ['IDS', 'EDS', 'Stay']
+for cond in conditions:
+    corr = np.zeros(len(subjects))
+    for ix , res in enumerate(results):
+        fc = rsfc_avemat
+        tha_b = np.mean(results[ix][2][cond][:,:],axis=0)
+        ctx_b = np.mean(results[ix][3][cond][:,:],axis=0)
+        # correlate predicted cortical evoke vs observed
+        corr[ix] = np.corrcoef(zscore(np.dot(tha_b, fc)), zscore(ctx_b))[0,1]
+
+    print(cond)
+    print(corr)
+    print(np.mean(corr))
 
 
 
