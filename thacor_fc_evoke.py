@@ -224,7 +224,7 @@ def run_fc_evoke_corr(inputs):
         subcortical_evoke[condition][:,:] = masking.apply_mask(fir_hrf, subcortical_mask)  #time by voxel
         ctx_evoke[condition][:,:] = cortex_masker.fit_transform(fir_hrf) #time by cortical ROI
 
-    return s, fcmat, subcortical_evoke,  ctx_evoke
+    return s, fcmat, subcortical_evoke, ctx_evoke
 
 
 ####################################################
@@ -240,19 +240,48 @@ pool.join()
 ##### unpack results
 print("correlation between observed and predicted cortical evoked pattern")
 print(" ")
-conditions = ['IDS', 'EDS', 'Stay']
-for cond in conditions:
-    corr = np.zeros(len(subjects))
+conditions = ['EDS', 'IDS','Stay']
+predicted_ctx = np.zeros((3, results[0][1].shape[1]))
+observed_ctx = np.zeros((3, results[0][1].shape[1]))
+observed_tha = np.zeros((3, results[0][1].shape[0]))
+corr = np.zeros((3, len(subjects)))
+for ic, cond in enumerate(conditions):
     for ix , res in enumerate(results):
         fc = res[1]
         tha_b = np.mean(results[ix][2][cond][:,:],axis=0)
         ctx_b = np.mean(results[ix][3][cond][:,:],axis=0)
         # correlate predicted cortical evoke vs observed
-        corr[ix] = np.corrcoef(zscore(np.dot(tha_b, fc)), zscore(ctx_b))[0,1]
+        predicted_ctx[ic, :] = zscore(np.dot(tha_b, fc))
+        observed_ctx[ic, :] = zscore(ctx_b)
+        observed_tha[ic, :] = tha_b
+        corr[ic, ix] = np.corrcoef(zscore(np.dot(tha_b, fc)), zscore(ctx_b))[0,1]
 
     print(cond)
-    print(corr)
-    print(np.mean(corr))
+    print(corr[ic, :])
+    print(np.mean(corr[ic, :]))
+
+### some plotting
+#sns.set_context('talk')
+#sns.regplot(x=predicted_ctx[1,:], y=observed_ctx[1,:])
+#plt.show()
+
+# kde plot
+df = pd.DataFrame()
+for ic, cond in enumerate(conditions):
+    tdf = pd.DataFrame()
+    tdf['Correlation'] = corr[ic, :]
+    tdf['Condition'] = cond
+    df= pd.concat([df, tdf])
+sns.set_context('talk')
+fig1=sns.pointplot(x="Condition", y="Correlation", hue="Condition",
+			  data=df, dodge=False, join=False)
+
+fig1=sns.stripplot(x="Condition", y="Correlation", hue="Condition",
+			  data=df, dodge=False, alpha=.5)
+fig1.legend_.remove()
+fig1.set_ylim([0.3, 0.9])
+plt.tight_layout()
+plt.show()
 
 ####################################################
 # set thalamus evoke input to uniform
@@ -260,42 +289,43 @@ for cond in conditions:
 print(" ")
 print(" ")
 print("correlation between observed and predicted cortical evoked pattern after setting thalamus to unifomred activity")
-print(" ")
-for cond in conditions:
-    corr = np.zeros(len(subjects))
+conditions = ['EDS', 'IDS','Stay']
+predicted_ctx = np.zeros((3, results[0][1].shape[1]))
+observed_ctx = np.zeros((3, results[0][1].shape[1]))
+observed_tha = np.zeros((3, results[0][1].shape[0]))
+corr = np.zeros((3, len(subjects)))
+for ic, cond in enumerate(conditions):
     for ix , res in enumerate(results):
         fc = res[1]
         tha_b = np.mean(results[ix][2][cond][:,:],axis=0)
         tha_b = np.ones(tha_b.shape) #uniform
         ctx_b = np.mean(results[ix][3][cond][:,:],axis=0)
         # correlate predicted cortical evoke vs observed
-        corr[ix] = np.corrcoef(zscore(np.dot(tha_b, fc)), zscore(ctx_b))[0,1]
+        predicted_ctx[ic, :] = zscore(np.dot(tha_b, fc))
+        observed_ctx[ic, :] = zscore(ctx_b)
+        observed_tha[ic, :] = tha_b
+        corr[ic, ix] = np.corrcoef(zscore(np.dot(tha_b, fc)), zscore(ctx_b))[0,1]
 
     print(cond)
-    print(corr)
-    print(np.mean(corr))
+    print(corr[ic, :])
+    print(np.mean(corr[ic, :]))
 
-####################################################
-# set tha-cor FC to uniform
-####################################################
-print(" ")
-print(" ")
-print("correlation between observed cortical evoked pattern and each cortical ROI's averaged FC")
-print(" ")
-for cond in conditions:
-    corr = np.zeros(len(subjects))
-    for ix , res in enumerate(results):
-        fc = res[1]
-        tha_b = np.mean(results[ix][2][cond][:,:],axis=0)
-        ctx_b = np.mean(results[ix][3][cond][:,:],axis=0)
-        fcmean = np.mean(fc)
-        fc = np.mean(fc,axis =0)
-        # correlate predicted cortical evoke vs observed
-        corr[ix] = np.corrcoef(zscore(fc), zscore(ctx_b))[0,1]
+### some plotting
+# sns.set_context('talk')
+# sns.regplot(x=predicted_ctx[1,:], y=observed_ctx[1,:])
+# plt.show()
 
-    print(cond)
-    print(corr)
-    print(np.mean(corr))
+# kde plot of nul
+df = pd.DataFrame()
+for ic, cond in enumerate(conditions):
+    tdf = pd.DataFrame()
+    tdf['Correlation'] = corr[ic, :]
+    tdf['Condition'] = cond
+    df= pd.concat([df, tdf])
+
+sns.kdeplot(x = 'Correlation', data=df)
+plt.tight_layout()
+plt.show()
 
 
 ####################################################
@@ -306,41 +336,74 @@ print(" ")
 print("creating an empircal null distribution by randomly swapping the thalamus evoke vector")
 print(" ")
 
-
-for cond in conditions:
-    corr = np.zeros((len(subjects), 1000))
-    for n in np.arange(0,1000):
-        for ix , res in enumerate(results):
-            fc = res[1]
-            tha_b = np.random.permutation(np.mean(results[ix][2][cond][:,:],axis=0))
-            ctx_b = np.mean(results[ix][3][cond][:,:],axis=0)
-            # correlate predicted cortical evoke vs observed
-            corr[ix, n] = np.corrcoef(zscore(np.dot(zscore(tha_b), fc)), zscore(ctx_b))[0,1]
+conditions = ['EDS', 'IDS','Stay']
+predicted_ctx = np.zeros((3, results[0][1].shape[1]))
+observed_ctx = np.zeros((3, results[0][1].shape[1]))
+observed_tha = np.zeros((3, results[0][1].shape[0]))
+corr = np.zeros((3, len(subjects)))
+for ic, cond in enumerate(conditions):
+    for ix , res in enumerate(results):
+        fc = res[1]
+        tha_b = np.random.permutation(np.mean(results[ix][2][cond][:,:],axis=0))
+        ctx_b = np.mean(results[ix][3][cond][:,:],axis=0)
+        # correlate predicted cortical evoke vs observed
+        predicted_ctx[ic, :] = zscore(np.dot(tha_b, fc))
+        observed_ctx[ic, :] = zscore(ctx_b)
+        observed_tha[ic, :] = tha_b
+        corr[ic, ix] = np.corrcoef(zscore(np.dot(tha_b, fc)), zscore(ctx_b))[0,1]
 
     print(cond)
-    print(np.mean(corr, axis=1))
-    print(np.mean(corr))
+    print(corr[ic, :])
+    print(np.mean(corr[ic, :]))
+
+
+df = pd.DataFrame()
+for ic, cond in enumerate(conditions):
+    tdf = pd.DataFrame()
+    tdf['Correlation'] = corr[ic, :]
+    tdf['Condition'] = cond
+    df= pd.concat([df, tdf])
+
+sns.kdeplot(x = 'Correlation', data=df)
+plt.tight_layout()
+plt.show()
 
 
 print(" ")
 print(" ")
 print("creating an empircal null distribution by randomly swapping the FC matrix")
 print(" ")
-for cond in conditions:
-    corr = np.zeros((len(subjects), 1000))
 
-    for n in np.arange(0,1000):
-        for ix , res in enumerate(results):
-            fc = np.random.permutation(res[1]) ### will only randomly shuffle the first axis, which is the thalamus vector
-            tha_b = np.mean(results[ix][2][cond][:,:],axis=0)
-            ctx_b = np.mean(results[ix][3][cond][:,:],axis=0)
-            # correlate predicted cortical evoke vs observed
-            corr[ix, n] = np.corrcoef(zscore(np.dot(zscore(tha_b), fc)), zscore(ctx_b))[0,1]
+conditions = ['EDS', 'IDS','Stay']
+predicted_ctx = np.zeros((3, results[0][1].shape[1]))
+observed_ctx = np.zeros((3, results[0][1].shape[1]))
+observed_tha = np.zeros((3, results[0][1].shape[0]))
+corr = np.zeros((3, len(subjects)))
+for ic, cond in enumerate(conditions):
+    for ix , res in enumerate(results):
+        fc = np.random.permutation(res[1]) ### will only randomly shuffle the first axis, which is the thalamus vector
+        tha_b = np.mean(results[ix][2][cond][:,:],axis=0)
+        # correlate predicted cortical evoke vs observed
+        predicted_ctx[ic, :] = zscore(np.dot(tha_b, fc))
+        observed_ctx[ic, :] = zscore(ctx_b)
+        observed_tha[ic, :] = tha_b
+        corr[ic, ix] = np.corrcoef(zscore(np.dot(tha_b, fc)), zscore(ctx_b))[0,1]
 
     print(cond)
-    print(np.mean(corr, axis=1))
-    print(np.mean(corr))
+    print(corr[ic, :])
+    print(np.mean(corr[ic, :]))
 
+
+df = pd.DataFrame()
+for ic, cond in enumerate(conditions):
+    tdf = pd.DataFrame()
+    tdf['Correlation'] = corr[ic, :]
+    tdf['Condition'] = cond
+    df= pd.concat([df, tdf])
+
+sns.kdeplot(x = 'Correlation', data=df)
+plt.tight_layout()
+plt.show()
 
 ####################################################
 ## random lesion the thalamus. 480 (20%) voxels at a time. Will need to keep track of which voxels.
@@ -400,7 +463,7 @@ for ic, cond in enumerate(conditions):
 ####################################################
 #### Do the same thing for BG
 ## parallel
-pool = multiprocessing.Pool(10)
+pool = multiprocessing.Pool(4)
 striatum_results = pool.map(run_fc_evoke_corr, zip(subjects, [striatum_mask] * len(subjects), [cortex_masker]* len(subjects)))
 pool.close()
 pool.join()
@@ -409,21 +472,42 @@ pool.join()
 ##### unpack results
 print("correlation between observed and predicted cortical evoked pattern, for striatum")
 print(" ")
-conditions = ['IDS', 'EDS', 'Stay']
-for cond in conditions:
-    corr = np.zeros(len(subjects))
+conditions = ['EDS', 'IDS','Stay']
+predicted_ctx = np.zeros((3, striatum_results[0][1].shape[1]))
+observed_ctx = np.zeros((3, striatum_results[0][1].shape[1]))
+observed_tha = np.zeros((3, striatum_results[0][1].shape[0]))
+corr = np.zeros((3, len(subjects)))
+for ic, cond in enumerate(conditions):
     for ix , res in enumerate(striatum_results):
         fc = res[1]
-        str_b = np.mean(striatum_results[ix][2][cond][:,:],axis=0)
+        tha_b = np.mean(striatum_results[ix][2][cond][:,:],axis=0)
         ctx_b = np.mean(striatum_results[ix][3][cond][:,:],axis=0)
         # correlate predicted cortical evoke vs observed
-        corr[ix] = np.corrcoef(zscore(np.dot(str_b, fc)), zscore(ctx_b))[0,1]
+        predicted_ctx[ic, :] = zscore(np.dot(tha_b, fc))
+        observed_ctx[ic, :] = zscore(ctx_b)
+        observed_tha[ic, :] = tha_b
+        corr[ic, ix] = np.corrcoef(zscore(np.dot(tha_b, fc)), zscore(ctx_b))[0,1]
 
     print(cond)
-    print(corr)
-    print(np.mean(corr))
+    print(corr[ic, :])
+    print(np.mean(corr[ic, :]))
 
+df = pd.DataFrame()
+for ic, cond in enumerate(conditions):
+    tdf = pd.DataFrame()
+    tdf['Correlation'] = corr[ic, :]
+    tdf['Condition'] = cond
+    df= pd.concat([df, tdf])
+sns.set_context('talk')
+fig1 = sns.pointplot(x="Condition", y="Correlation", hue="Condition",
+			  data=df, dodge=False, join=False)
 
+fig1 = sns.stripplot(x="Condition", y="Correlation", hue="Condition",
+			  data=df, dodge=False, alpha=.5)
+fig1.legend_.remove()
+fig1.set_ylim([0.3, 0.9])
+plt.tight_layout()
+plt.show()
 
 ########################################################################################################
 #### Use resting-state FC as the FC matrix for activity flow
@@ -459,7 +543,7 @@ def rsfc(input):
 
     return fcmat
 
-pool = multiprocessing.Pool(36)
+pool = multiprocessing.Pool(10)
 rsfc_results = pool.map(rsfc, zip(MGH_files, [thalamus_mask] * len(MGH_files), [cortex_masker] * len(MGH_files)))
 pool.close()
 pool.join()
@@ -486,6 +570,9 @@ for cond in conditions:
     print(corr)
     print(np.mean(corr))
 
+
+### visualizeation
+#for r in np.arange(len(subjects)):
 
 
 ###### Test multiprocessing
