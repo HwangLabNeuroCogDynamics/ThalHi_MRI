@@ -28,6 +28,7 @@ from sklearn.decomposition import PCA
 from sklearn.linear_model import LinearRegression
 sns.set_context("paper")
 import multiprocessing
+import pickle
 
 def generate_correlation_mat(x, y):
     """Correlate each n with each m.
@@ -130,7 +131,21 @@ def pcorr_subcortico_cortical_connectivity(subcortical_ts, cortical_ts):
 
 	return pcorr_mat
 
+def save_object(obj, filename):
+	''' Simple function to write out objects into a pickle file
+	usage: save_object(obj, filename)
+	'''
+	with open(filename, 'wb') as output:
+		pickle.dump(obj, output, pickle.HIGHEST_PROTOCOL)
+	#M = pickle.load(open(f, "rb"))
 
+
+def read_object(filename):
+	''' short hand for reading object because I can never remember pickle syntax'''
+	o = pickle.load(open(filename, "rb"))
+	return o
+
+conditions = ['EDS', 'IDS','Stay']
 subjects = ['sub-10023',
  'sub-10020',
  'sub-10014',
@@ -205,7 +220,9 @@ def run_fc_evoke_corr(inputs):
         subcortical_ts = np.delete(subcortical_ts, del_i, axis = 0)
 
     # now try principal compoment regression
-    pca = PCA(roi_size-1)
+    ts_len = cortex_ts.shape[0]
+    n_comps = np.amin([ts_len, roi_size, subcortical_mask_size]) // 20
+    pca = PCA(n_comps)
     reduced_mat = pca.fit_transform(subcortical_ts) # Time X components
     components = pca.components_
     regrmodel = LinearRegression()
@@ -251,7 +268,7 @@ for ic, cond in enumerate(conditions):
         tha_b = np.mean(results[ix][2][cond][:,:],axis=0)
         ctx_b = np.mean(results[ix][3][cond][:,:],axis=0)
         # correlate predicted cortical evoke vs observed
-        predicted_ctx[ic, :] = zscore(np.dot(tha_b, fc))
+        predicted_ctx[ic, :] = zscore(np.dot(tha_b, fc)) #
         observed_ctx[ic, :] = zscore(ctx_b)
         observed_tha[ic, :] = tha_b
         corr[ic, ix] = np.corrcoef(zscore(np.dot(tha_b, fc)), zscore(ctx_b))[0,1]
@@ -272,6 +289,8 @@ for ic, cond in enumerate(conditions):
     tdf['Correlation'] = corr[ic, :]
     tdf['Condition'] = cond
     df= pd.concat([df, tdf])
+
+# condtions
 sns.set_context('talk')
 fig1=sns.pointplot(x="Condition", y="Correlation", hue="Condition",
 			  data=df, dodge=False, join=False)
@@ -462,8 +481,10 @@ for ic, cond in enumerate(conditions):
 
 ####################################################
 #### Do the same thing for BG
+
 ## parallel
-pool = multiprocessing.Pool(4)
+
+pool = multiprocessing.Pool(10)
 striatum_results = pool.map(run_fc_evoke_corr, zip(subjects, [striatum_mask] * len(subjects), [cortex_masker]* len(subjects)))
 pool.close()
 pool.join()
@@ -570,9 +591,210 @@ for cond in conditions:
     print(corr)
     print(np.mean(corr))
 
+############################################################################################################
+### restrict analysis in ROIs
+############################################################################################################
 
-### visualizeation
-#for r in np.arange(len(subjects)):
+rois = '/data/backed_up/shared/ThalHi_MRI_2020/ROIs/'
+thalamus_mask = nib.load(rois+'Morel_2.5_mask.nii.gz')
+striatum_mask = nib.load(rois+'Striatum_2.5_mask.nii.gz')
+lpfc_mask = nib.load(rois+'lpfc.nii.gz')
+rlpfc_mask = nib.load(rois+'rlplfc.nii.gz')
+preCS_mask = nib.load(rois+'preCS.nii.gz')
+
+
+def run_roi_fc_evoke_corr(inputs):
+    data_path = '/data/backed_up/shared/ThalHi_MRI_2020/3dDeconvolve'
+    rois = '/data/backed_up/shared/ThalHi_MRI_2020/ROIs/'
+
+    # three elements expected in input
+    s = inputs[0] # subject name
+    subcortical_mask = inputs[1]  # subocortical mask
+    cortex_mask = inputs[2] # cortex masker
+
+    #thalamus_mask = nib.load(rois+'Morel_2.5_mask.nii.gz')
+    #cortex_mask = nib.load(rois+'Schaefer400_2.5.nii.gz')
+    #cortex_masker = NiftiLabelsMasker(labels_img=cortex_mask, standardize=False)
+
+    subcortical_mask_size = np.sum(subcortical_mask.get_fdata()>0)
+    roi_size = np.sum(cortex_mask.get_fdata()>0)
+
+    fcmat = np.zeros((subcortical_mask_size,roi_size))
+    conditions = ['IDS', 'EDS', 'Stay']
+
+    subcortical_evoke = {}
+    ctx_evoke = {}
+    for condition in conditions:
+        subcortical_evoke[condition] = np.zeros((9, subcortical_mask_size)) #subject by time by voxel
+        ctx_evoke[condition] = np.zeros((9, roi_size)) #subject by time by cortical ROI
+
+    # FC
+    fn = '/data/backed_up/shared/ThalHi_MRI_2020/3dDeconvolve/%s/%s_FIRmodel_errts.nii.gz' %(s,s)
+    functional_data = nib.load(fn)
+    cortex_ts = masking.apply_mask(functional_data, cortex_mask)
+    subcortical_ts = masking.apply_mask(functional_data, subcortical_mask)
+
+    # remove censored timepoints
+    mts = np.mean(cortex_ts, axis = 1)
+    if any(mts==0):
+        del_i = np.where(mts==0)
+        cortex_ts = np.delete(cortex_ts, del_i, axis = 0)
+        subcortical_ts = np.delete(subcortical_ts, del_i, axis = 0)
+
+    # now try principal compoment regression
+    ts_len = cortex_ts.shape[0]
+    n_comps = np.amin([ts_len, roi_size, subcortical_mask_size]) // 20
+    pca = PCA(n_comps)
+    reduced_mat = pca.fit_transform(subcortical_ts) # Time X components
+    components = pca.components_
+    regrmodel = LinearRegression()
+    reg = regrmodel.fit(reduced_mat, cortex_ts) #cortex ts also time by ROI
+    #project regression betas from component
+    fcmat[:, :] = pca.inverse_transform(reg.coef_).T #reshape to cortex
+
+    # correlation and partial correlation
+    #fcmat[:, :] = generate_correlation_mat(thalamus_ts.T, cortex_ts.T) #th by ctx
+    #fcmat[:, :] = pcorr_subcortico_cortical_connectivity(thalamus_ts, cortex_ts)[400:, 0:400]
+
+    #Extract tha and cortical evoke
+    for condition in conditions:
+        fn = '/data/backed_up/shared/ThalHi_MRI_2020/3dDeconvolve/%s/%s_%s_FIR_MNI.nii.gz' %(s, s, condition)
+        fir_hrf = nib.load(fn)
+        subcortical_evoke[condition][:,:] = masking.apply_mask(fir_hrf, subcortical_mask)  #time by voxel
+        ctx_evoke[condition][:,:] = masking.apply_mask(fir_hrf, cortex_mask)  #time by cortical ROI
+
+    return s, fcmat, subcortical_evoke, ctx_evoke
+
+## parallel
+pool = multiprocessing.Pool(10)
+lpfc_results = pool.map(run_roi_fc_evoke_corr, zip(subjects, [thalamus_mask]*len(subjects), [lpfc_mask]*len(subjects)))
+pool.close()
+pool.join()
+save_object(lpfc_results, 'data/lpfc_results')
+
+pool = multiprocessing.Pool(10)
+rlpfc_results = pool.map(run_roi_fc_evoke_corr, zip(subjects, [thalamus_mask]*len(subjects), [rlpfc_mask]*len(subjects)))
+pool.close()
+pool.join()
+save_object(rlpfc_results, 'data/rlpfc_results')
+
+pool = multiprocessing.Pool(10)
+preCS_results = pool.map(run_roi_fc_evoke_corr, zip(subjects, [thalamus_mask]*len(subjects), [preCS_mask]*len(subjects)))
+pool.close()
+pool.join()
+save_object(preCS_results, 'data/preCS_results')
+
+##### unpack results
+print("correlation between observed and predicted cortical evoked pattern in LPFC")
+print(" ")
+
+def run_acfl(input_results):
+    conditions = ['EDS', 'IDS','Stay']
+    predicted_ctx = np.zeros((3, input_results[0][1].shape[1]))
+    observed_ctx = np.zeros((3, input_results[0][1].shape[1]))
+    observed_tha = np.zeros((3, input_results[0][1].shape[0]))
+    corr = np.zeros((3, len(subjects)))
+    fc_sum = np.zeros((20, input_results[0][1].shape[0], input_results[0][1].shape[1] ))
+    for ic, cond in enumerate(conditions):
+        for ix , res in enumerate(input_results):
+            fc = res[1]
+            fc_sum[ix, :,:] = fc = res[1]
+            tha_b = np.mean(input_results[ix][2][cond][:,:],axis=0)
+            ctx_b = np.mean(input_results[ix][3][cond][:,:],axis=0)
+            # correlate predicted cortical evoke vs observed
+            predicted_ctx[ic, :] = zscore(np.dot(tha_b, fc))
+            observed_ctx[ic, :] = zscore(ctx_b)
+            observed_tha[ic, :] = tha_b
+            corr[ic, ix] = np.corrcoef(zscore(np.dot(tha_b, fc)), zscore(ctx_b))[0,1]
+
+        print(cond)
+        print(corr[ic, :])
+        print(np.mean(corr[ic, :]))
+
+    return corr, fc_sum
+
+#run_acfl(rlpfc_results)
+#run_acfl(preCS_results)
+rlpfc_results = read_object('data/lpfc_results')
+corr, fc_sum = run_acfl(rlpfc_results)
+# condtions
+df = pd.DataFrame()
+for ic, cond in enumerate(conditions):
+    tdf = pd.DataFrame()
+    tdf['Correlation'] = abs(corr[ic, :])
+    tdf['Condition'] = cond
+    df= pd.concat([df, tdf])
+
+sns.set_context('talk')
+fig1=sns.pointplot(x="Condition", y="Correlation", hue="Condition",
+			  data=df, dodge=False, join=False)
+
+fig1=sns.stripplot(x="Condition", y="Correlation", hue="Condition",
+			  data=df, dodge=False, alpha=.2)
+fig1.legend_.remove()
+fig1.set_ylim([0, 0.9])
+plt.tight_layout()
+plt.show()
+
+from scipy.stats import ttest_rel
+ttest_rel(corr[0,:], corr[1,:])
+ttest_rel(corr[0,:], corr[2,:])
+ttest_rel(corr[0,:], corr[2,:])
+
+
+
+
+
+
+global conditions
+global rlpfc_results
+lesion_size = 480
+global lesion_size
+
+def sim_lesion(idx):
+    corr = np.zeros((3, len(subjects)))
+    lesion_idx = np.random.permutation(np.arange(0,2473))[0:lesion_size]             #np.arange(idx, idx+1000)
+    for ic, cond in enumerate(conditions):
+        for ix , res in enumerate(rlpfc_results):
+            fc = res[1]
+            tha_b = np.mean(rlpfc_results[ix][2][cond][:,:],axis=0)
+            tha_b[lesion_idx.astype('int')]=0
+            ctx_b = np.mean(rlpfc_results[ix][3][cond][:,:],axis=0)
+            # correlate predicted cortical evoke vs observed
+            corr[ic, ix] = np.corrcoef(zscore(np.dot(tha_b, fc)), zscore(ctx_b))[0,1]
+    return corr, lesion_idx
+
+# run simulation
+pool = multiprocessing.Pool(24)
+idxs = np.arange(2473*50)
+lesion_results = pool.map(sim_lesion, idxs)
+pool.close()
+pool.join()
+
+
+## unpack simulation
+corr = np.zeros((3, len(subjects), len(idxs)))
+lesion_idx = np.zeros((len(idxs),lesion_size))
+for ix , res in enumerate(lesion_results):
+    corr[:,:,ix] = res[0]
+    lesion_idx[ix,:] = res[1]
+
+for ic, cond in enumerate(conditions):
+    print(cond)
+    print(np.percentile(np.mean(corr[ic, :,:], axis=0), 99))
+    print(np.percentile(np.mean(corr[ic, :,:], axis=0), 1))
+
+
+# get pseudo lesion mask
+a = masking.apply_mask(thalamus_mask, thalamus_mask)
+li = lesion_idx[idx, :]
+counts = np.zeros(a.shape[0])
+for i in np.arange(a.shape[0]):
+    counts[i] = np.sum(li==i)
+n = masking.unmask(counts, thalamus_mask)
+
+
+
 
 
 ###### Test multiprocessing
