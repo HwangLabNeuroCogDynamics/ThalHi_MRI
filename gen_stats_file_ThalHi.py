@@ -212,12 +212,6 @@ print(test_df)
 print("Saving stats data frame to",os.path.join(data_dir,"RSA"))
 test_df.to_csv(os.path.join(data_dir,"RSA","ThalHi_MRI_2020_RSA_Stats.csv"))
 
-#    print a few previews to the terminal
-print("Min and Max P-value for Intercept was",test_df["Intercept_P-value"].min(),test_df["Intercept_P-value"].max())
-print("Min and Max P-value for Context was",test_df["Context_P-value"].min(),test_df["Context_P-value"].max())
-print("Min and Max P-value for Identity was",test_df["Identity_P-value"].min(),test_df["Identity_P-value"].max())
-print("Min and Max P-value for Relevant_Feature was",test_df["Relevant_Feature_P-value"].min(),test_df["Relevant_Feature_P-value"].max())
-print("Min and Max P-value for Task_Performed was",test_df["Task_Performed_P-value"].min(),test_df["Task_Performed_P-value"].max())
 
 # -- NOW turn each column of the statistics data frame into a nifty image
 #    load roi mask file
