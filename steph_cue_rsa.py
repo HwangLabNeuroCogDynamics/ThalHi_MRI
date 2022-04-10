@@ -836,6 +836,22 @@ if __name__ == "__main__":
         pool.close()
         pool.join()
         
+        # put output backinto brain space
+        def inverse_trans_stats(results, stats):
+            cortical_masker = NiftiMasker(coritcal_mask)
+            cortical_masker.fit()
+            tmp_data = np.zeros(test_num_of_sphere_seeds)
+            for i in np.arange(test_num_of_sphere_seeds):
+                vox_idx = results[i]['sphere_idx']
+                tmp_data[vox_idx] = results[i][stats]
+            stat_nii = cortical_masker.inverse_transform(tmp_data)
+            return stat_nii
+        
+        context_img = inverse_trans_stats(results, "context_tval") 
+        task_img = inverse_trans_stats(results, "taskper_tval") 
+        feature_img = inverse_trans_stats(results, "relfeat_tval") 
+        
+        
         # def testf(input):
         #     res = input+1
         #     return res
