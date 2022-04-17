@@ -1,5 +1,4 @@
 ## testing Steph's RSA regression
-
 from nilearn.image import resample_to_img
 from thalpy import base
 from sklearn.linear_model import RidgeClassifier
@@ -10,22 +9,12 @@ from thalhi.decoding import SubjectLssTentData
 from thalhi.rsa.repsimanalyze import RSA_cues,apply_mask,get_voxels_to_exclude_SL_version
 from sklearn.multiclass import OneVsRestClassifier
 import os
-import argparse
-from thalpy.decoding import searchlight
+#from thalpy.decoding import searchlight
 from thalpy import masks
-import nibabel as nib
 import pickle
 from nilearn.datasets import load_mni152_template
 from nilearn.input_data import NiftiMasker
-import nilearn.masking
 import rsatoolbox
-import numpy as np
-#import pandas as pd
-#import re
-#import glob2 as glob
-import time
-import sys
-import warnings
 import numpy as np
 #from joblib import Parallel, delayed, cpu_count
 from sklearn.exceptions import ConvergenceWarning
@@ -33,18 +22,11 @@ from nilearn import masking
 from nilearn.image.resampling import coord_transform
 from nilearn.maskers.nifti_spheres_masker import _apply_mask_and_get_affinity
 from nilearn._utils import check_niimg_4d
-import sys
-from thalpy import masks
 from thalpy.constants.paths import SCRIPTS_DIR
 import nibabel as nib
 import nilearn
 import nilearn.masking
-import numpy as np
-import os
-import sys
 import pandas as pd
-import pickle
-import rsatoolbox
 from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import roc_curve, auc
@@ -53,22 +35,8 @@ import statistics
 import statsmodels.api as sm
 import time
 import datetime
+import multiprocessing
 
-
-def init_argparse() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Decode subject",
-        usage="[Subject] [Classifier] [OPTIONS] ... ",
-    )
-    #parser.add_argument("subject", help="id of subject ie 10001")
-    #parser.add_argument(
-    #    "--statmethod", help="stats method to use: Options Pearson, Spearman, Mahalanobis, Crossnobis")
-    parser.add_argument(
-        "--njobs", help="number of cores to use: int between 1 and 80")
-    parser.add_argument("--searchlight",
-                        help="run searchlight, default is false",
-                        default=False, action="store_true")
-    return parser
 
 #### more regression functions from Steph
 
@@ -84,7 +52,6 @@ This script creates an RSA object that contains the following information
 This script contains necessary functions to calculate RSA (on fMRI data at least)
 """
 
-# # # # CREATE RSA CLASS GENERATED FROM PREDEFINED ROIS
 class SubjectRsaData:
     def __init__(self, sub_deconvolve_dir, sub_rsa_dir, cues, rois, path="RSA_obj.p"):
         # directories
@@ -470,7 +437,7 @@ def set_up_model_vars(mod2skip):
     lower_triangle_inds=np.where(temp_vec!=0)[0] # will use this to pull out the lower triangle from the coeff mats generated below
     #print("length of lower triangle inds vector",len(lower_triangle_inds))
 
-    return regressor_list, stat_list, column_headers, lower_triangle_inds
+    return regressor_list, lower_triangle_inds
 
 def get_start_and_end(ind, len_of_data_to_add):
     start_ind = ind*len(len_of_data_to_add)
@@ -513,83 +480,27 @@ def create_regressor_dataframe(mod2skip, regressor_list, y_vec, context_vec, rel
         cur_row_list.append(res.tvalues[cur_regressor])
         cur_row_list.append(res.pvalues[cur_regressor])
     #print("cur_row_list",cur_row_list)
-    cur_dict = {'context_beta': cur_row_list[0],'context_tval': cur_row_list[1],'context_pval': cur_row_list[2],
-                'relfeat_beta': cur_row_list[3],'relfeat_tval': cur_row_list[4],'relfeat_pval': cur_row_list[5],
-                'taskper_beta': cur_row_list[6],'taskper_tval': cur_row_list[7],'taskper_pval': cur_row_list[8]}
+    cur_dict = {'intercept_beta': cur_row_list[0],'intercept_tval': cur_row_list[1],'intercept_pval': cur_row_list[2],
+            'context_beta': cur_row_list[3],'context_tval': cur_row_list[4],'context_pval': cur_row_list[5],
+            'relfeat_beta': cur_row_list[6],'relfeat_tval': cur_row_list[7],'relfeat_pval': cur_row_list[8],
+            'taskper_beta': cur_row_list[9],'taskper_tval': cur_row_list[10],'taskper_pval': cur_row_list[11]}
     return cur_dict
+
+
 
 
 # ------------------------------------------------- #
 # ----- INTEGRATE FUNCTIONS TO CALCULATE RSA ------ #
-def RSA_cues(searchlight_data, sphere_voxel_inds, cue_list, sub_list, resids_data_list):
-    # initialize some directories
-    if os.path.exists("/mnt/nfs/lss/lss_kahwang_hpc/data/ThalHi/"):
-        mnt_dir = "/mnt/cifs/rdss/rdss_kahwang/ThalHi_data/MRI_data/"
-    elif os.path.exists("/Shared/lss_kahwang_hpc/data/ThalHi/"):
-        mnt_dir = "/Shared/lss_kahwang_hpc/ThalHi_MRI_2020/"
-    # initialize lists, arrays, and variables
-    mod2skip=""
-    regressor_list, stat_list, column_headers, lower_triangle_inds = set_up_model_vars(mod2skip)
-    y_vec, context_vec, relFeat_vec, taskPerform_vec = create_model_vecs(sub_list,lower_triangle_inds)
-    # initialize model info
-    data_Ctxt, data_Iden, dcfs_relF, dcfs_tskR, dsfc_relF, dsfc_tskR = gen_RSA_models(cue_list)
-    version_info = pd.read_csv(os.path.join(mnt_dir, "Version_Info.csv"))
-    print(sub_list)
-    print(version_info)
-    # loop through subjects, get rsa on sphere, and run model on all subjects
-    for ind, subject in enumerate(sub_list):
-        # # # # Loop where we reduce to just current subejct to get RSA for each subj
-        #print("\nsearchlight data is size",searchlight_data.shape,"\nsphere voxel arg is size",len(sphere_voxel_inds)) # searchlight data = [subject_x_cues , voxels]
-        start_ind, stop_ind = get_start_and_end(ind, cue_list)
-        #print("start:",start_ind,"\tstop:",stop_ind)
-        cur_sub_data = searchlight_data[start_ind:stop_ind,:]
-        #print("searchlight data for current subject is size",cur_sub_data.shape) # cur_sub_data = [cues , voxels]
-        resids_data = resids_data_list[ind]
-        #                     remove_censored_data_noise_version(resids_data)
-        reduced_resids_data = remove_censored_data_noise_version(resids_data[:,sphere_voxel_inds])
-        noise_pres_res = rsatoolbox.data.noise.prec_from_residuals(reduced_resids_data, method='diag')
-        #                     make_rsatoolbox_format(CONDxVOXELS, sub,  roi)
-        data_rsatool_format = make_rsatoolbox_format(cur_sub_data,subject,1) # entering 1 as roi (b/c we don't need it)
-        # # # # Calculate RSA
-        # RSA will be calculated for each subject... the coeffs will be pulled out and added to a vector
-        # the stats model will then be applied to the vector of all subject coeffs for this searchlight
-        try: 
-            rdm = rsatoolbox.rdm.calc_rdm(data_rsatool_format, method='mahalanobis', descriptor='measure', noise=noise_pres_res)
-            Coeff_mat = rdm.get_matrices()[0] # the distance matrix
-        except:
-            Coeff_mat = np.empty((cur_sub_data.shape[0],cur_sub_data.shape[0]))
-            Coeff_mat[:] = np.nan
-            #ROIs_with_inversion_error.append(roi)
-        #print("Coeff mat is size:",Coeff_mat.shape,"\nCoeff mat looks like:",Coeff_mat)
-        # # # # Pull out lower triangle from coeff mat for this subject
-        coeff_vec=np.tril(Coeff_mat, k=-1).flatten()
-        start_pt, end_pt = get_start_and_end(ind, lower_triangle_inds)
-        #print("start point =",start_pt,"\tend point =",end_pt)
-        y_vec[start_pt:end_pt]=coeff_vec[lower_triangle_inds] # add to y vector for model
-        #    set up other model vectors based on what version the current sub did
-        context_vec[start_pt:end_pt]=np.tril(data_Ctxt).flatten()[lower_triangle_inds]
-        if version_info["version"][ind]=="DCFS":
-            #    not swapped version
-            relFeat_vec[start_pt:end_pt]=np.tril(dcfs_relF).flatten()[lower_triangle_inds]
-            taskPerform_vec[start_pt:end_pt]=np.tril(dcfs_tskR).flatten()[lower_triangle_inds]
-        else:
-            relFeat_vec[start_pt:end_pt]=np.tril(dsfc_relF).flatten()[lower_triangle_inds]
-            taskPerform_vec[start_pt:end_pt]=np.tril(dsfc_tskR).flatten()[lower_triangle_inds]
-    #                         create_regressor_dataframe(mod2skip, regressor_list, y_vec, context_vec, relFeat_vec, taskPerform_vec)
-    searchlight_stat_output = create_regressor_dataframe(mod2skip, regressor_list, y_vec, context_vec, relFeat_vec, taskPerform_vec)
-    print(searchlight_stat_output) # dictionary type
-
-    # output variable is list format
-    return searchlight_stat_output
-
-def searchlight_tester(searchlight_data, sphere_voxel_inds, start_time):
-    cur_time = time.time() - start_time
-    # just return the current voxel
-    return cur_time
-
-
-
 def RSA_cues_for_parallel(inputs):
+    err_type = 'none'
+    any_error = False
+
+    #progress_shm = shared_memory.SharedMemory(name=inputs[8])
+    #progress = np.ndarray(inputs[9], buffer=progress_shm.buf) #input 1 is the progress_dim
+    #print( ((progress[0]/progress[1])*100), " percent finished")
+    #progress[0] += 1 # add 1 so we can keep track of progress
+    #progress_shm.close()
+
     #print(inputs[0])
     X_shm = shared_memory.SharedMemory(name=inputs[0]) # this is to access the shared memory space that is storing X
 
@@ -613,7 +524,7 @@ def RSA_cues_for_parallel(inputs):
     
     # initialize lists, arrays, and variables
     mod2skip=""
-    regressor_list, stat_list, column_headers, lower_triangle_inds = set_up_model_vars(mod2skip)
+    regressor_list, lower_triangle_inds = set_up_model_vars(mod2skip)
     y_vec, context_vec, relFeat_vec, taskPerform_vec = create_model_vecs(sub_list,lower_triangle_inds)
     # initialize model info
     data_Ctxt, data_Iden, dcfs_relF, dcfs_tskR, dsfc_relF, dsfc_tskR = gen_RSA_models(cue_list)
@@ -627,23 +538,63 @@ def RSA_cues_for_parallel(inputs):
         start_ind, stop_ind = get_start_and_end(ind, cue_list)
         #print("start:",start_ind,"\tstop:",stop_ind)
         cur_sub_data = searchlight_data[start_ind:stop_ind,:]
+        #print("number of voxels in searchlight sphere:",len(sphere_voxel_inds),"\tsize current subj data:",cur_sub_data.shape)
+        # remove any voxels with zero
+        usable_sphere_inds = np.zeros((len(sphere_voxel_inds)))
+        usable_vox_list = []
+        for ind_v, vox in enumerate(sphere_voxel_inds):
+            for ind_c, cue_pt in enumerate(cur_sub_data[:,ind_v]):
+                if cue_pt != 0:
+                    usable_sphere_inds[ind_v]=1
+            if usable_sphere_inds[ind_v]==1:
+                usable_vox_list.append(ind_v)
+        usable_vox_arr = np.asarray(usable_vox_list).flatten()
+        #print("num usable sphere inds:", len(usable_vox_arr), "\tproportion usable:", (sum(usable_sphere_inds)/len(sphere_voxel_inds)), "\n\tresids_size:", resids_data_list.shape)
         #print("searchlight data for current subject is size",cur_sub_data.shape) # cur_sub_data = [cues , voxels]
-        resids_data = resids_data_list[ind,:,:]
+        #resids_data = resids_data_list[ind,:,usable_vox_arr] # should have already reduced dim3 to just the current sphere BUT now we reduce to usable sphere inds
+        #print("resids data shape", resids_data.shape)
         #                     remove_censored_data_noise_version(resids_data)
-        reduced_resids_data = remove_censored_data_noise_version(resids_data)  #already indexed
-        noise_pres_res = rsatoolbox.data.noise.prec_from_residuals(reduced_resids_data, method='diag')
+        # Note, resids_data flips dimension order when we index (IDK WHY) and so we have to transpose it in the line below
+        #reduced_resids_data = remove_censored_data_noise_version(resids_data)  #already indexed
+        #print("resids data shape:", resids_data.shape, "\treduced resids data shape:", reduced_resids_data.shape)
+        #noise_pres_res = rsatoolbox.data.noise.prec_from_residuals(reduced_resids_data, method='diag')
+        # get rid of voxels with zeros
+        try:
+            resids_data = resids_data_list[ind,:,usable_vox_arr]
+            reduced_resids_data = remove_censored_data_noise_version(resids_data)
+            noise_pres_res = rsatoolbox.data.noise.prec_from_residuals(reduced_resids_data, method = 'shrinkage_diag') # ='diag'
+            if np.any(np.isnan(noise_pres_res)):
+                noise_pres_res = np.identity(len(usable_vox_list))
+                any_error = True
+                err_type = 'noise_creation'
+        except:
+            #print("encountered an exception with creating the noise object")
+            noise_pres_res = np.identity(len(usable_vox_list))
+            any_error = True
+            err_type = 'noise_creation'
+            #noise_inv_err_dict = {'central_voxel': sphere_idx, 'num_nonzero_timepts':reduced_resids_data.shape[0], 'num_nonzero_voxels': reduced_resids_data.shape[1], 'timestamp': datetime.datetime.now()}
+            #print(noise_inv_err_dict)
+            #pickle.dump(noise_inv_err_dict, open(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight","ROIs_w_Inversion_Error", (str(sphere_idx)+"_noise_inversion_error.p")), "wb"), protocol=4)
         #                     make_rsatoolbox_format(CONDxVOXELS, sub,  roi)
-        data_rsatool_format = make_rsatoolbox_format(cur_sub_data,subject,1) # entering 1 as roi (b/c we don't need it)
+         # entering 1 as roi (b/c we don't need it)
         # # # # Calculate RSA
         # RSA will be calculated for each subject... the coeffs will be pulled out and added to a vector
         # the stats model will then be applied to the vector of all subject coeffs for this searchlight
         try: 
+            data_rsatool_format = make_rsatoolbox_format(cur_sub_data[:,usable_vox_arr],subject,1)
             rdm = rsatoolbox.rdm.calc_rdm(data_rsatool_format, method='mahalanobis', descriptor='measure', noise=noise_pres_res)
             Coeff_mat = rdm.get_matrices()[0] # the distance matrix
         except:
+            #print("encountered an exception with creating the rdm")
             Coeff_mat = np.empty((cur_sub_data.shape[0],cur_sub_data.shape[0]))
             Coeff_mat[:] = np.nan
+            any_error = True
+            err_type = 'rdm_calc'
+            #rdm_inv_err_dict = {'central_voxel': sphere_idx, 'num_nonzero_voxels': cur_sub_data.shape[1], 'timestamp': datetime.datetime.now()}
+            #print(rdm_inv_err_dict)
+            #pickle.dump(rdm_inv_err_dict, open(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight","ROIs_w_Inversion_Error", (str(sphere_idx)+"_rdm_inversion_error.p")), "wb"), protocol=4)
             #ROIs_with_inversion_error.append(roi)
+        
         #print("Coeff mat is size:",Coeff_mat.shape,"\nCoeff mat looks like:",Coeff_mat)
         # # # # Pull out lower triangle from coeff mat for this subject
         coeff_vec=np.tril(Coeff_mat, k=-1).flatten()
@@ -664,211 +615,227 @@ def RSA_cues_for_parallel(inputs):
     #print(searchlight_stat_output) # dictionary type
     searchlight_stat_output['sphere_idx'] = sphere_idx
     # output variable is list format
+    # add inversion error info if applicable
+    if any_error:
+        searchlight_stat_output['err_type'] = err_type
+    
+    ## need to close shared memory within each job
+    X_shm.close()
+    resids_data_shm.close()
+
     return searchlight_stat_output ## also need to save sphere idx
 
 
 
-if __name__ == "__main__":
+#if __name__ == "__main__":
 
 
-    CUES = ["dcb", "fcb", "dpb", "fpb", "dcr", "fcr", "dpr", "fpr"]
+CUES = ["dcb", "fcb", "dpb", "fpb", "dcr", "fcr", "dpr", "fpr"]
 
-    if os.path.exists("/mnt/nfs/lss/lss_kahwang_hpc/data/ThalHi/"):
-        THAL_HI_DIR = "/mnt/nfs/lss/lss_kahwang_hpc/data/ThalHi/"
-    elif os.path.exists("/Shared/lss_kahwang_hpc/data/ThalHi/"):
-        THAL_HI_DIR = "/Shared/lss_kahwang_hpc/data/ThalHi/"
+if os.path.exists("/mnt/nfs/lss/lss_kahwang_hpc/data/ThalHi/"):
+    THAL_HI_DIR = "/mnt/nfs/lss/lss_kahwang_hpc/data/ThalHi/"
+elif os.path.exists("/Shared/lss_kahwang_hpc/data/ThalHi/"):
+    THAL_HI_DIR = "/Shared/lss_kahwang_hpc/data/ThalHi/"
 
-    # Parse command line arguments and separate subcommands
-    #parser = init_argparse()
-    #args = parser.parse_args(sys.argv[1:])
-    #stats_method = args.statmethod
-    #num_cores = 48#int(args.njobs)
+# Parse command line arguments and separate subcommands
+#parser = init_argparse()
+#args = parser.parse_args(sys.argv[1:])
+#stats_method = args.statmethod
+#num_cores = 48#int(args.njobs)
 
-    dir_tree = base.DirectoryTree(THAL_HI_DIR)
-    unusable_subs = ['10006','10009',"10011","10015","10016","10029","10030","10034","10038","10039","10055","10061","10062","10065", "JH"]
-    subjects = base.get_subjects(dir_tree.deconvolve_dir, dir_tree, excluded=unusable_subs) # name is weird, but "completed_subs" will exclude list passed to it
+dir_tree = base.DirectoryTree(THAL_HI_DIR)
+unusable_subs = ['10006','10009',"10011","10015","10016","10029","10030","10034","10038","10039","10055","10061","10062","10065", "JH"]
+subjects = base.get_subjects(dir_tree.deconvolve_dir, dir_tree, excluded=unusable_subs) # name is weird, but "completed_subs" will exclude list passed to it
 
-    #subject = next(sub for sub in subjects if sub.name == args.subject)
-    subject_list = [sub.name for sub in subjects]
-    sub_list = [] #[sub.name for sub in subjects]
-    #sub_list=sorted(set(sub_list).difference(unusable_subs))
+#subject = next(sub for sub in subjects if sub.name == args.subject)
+subject_list = [sub.name for sub in subjects]
+sub_list = [] #[sub.name for sub in subjects]
+#sub_list=sorted(set(sub_list).difference(unusable_subs))
 
-    if True:
-        #### if searchlight argument entered, run code below
+if True:
+    #### if searchlight argument entered, run code below
 
-        #### this will get two masks... one is just the brain vs not the brain and the other is the roi regions (I think)
-        coritcal_mask = nib.load("/Shared/lss_kahwang_hpc/data/ROIs/CorticalBinary_rs.nii.gz") # get mask that will be used as the current searchlight mask
+    #### this will get two masks... one is just the brain vs not the brain and the other is the roi regions (I think)
+    coritcal_mask = nib.load("/Shared/lss_kahwang_hpc/data/ROIs/CorticalBinary_rs.nii.gz") # get mask that will be used as the current searchlight mask
 
-        # # # Load template for getting size and converting to niftii format
-        img = nib.load(
-            THAL_HI_DIR + "fmriprep/sub-10001/func/sub-10001_task-ThalHi_run-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz")
-        dims=img.get_fdata().shape
-        # # # Load 8 cue files and create voxel by cue matrix (stacked by subject)
-        # # # Load errors from regressor for each subject too while we are at it
-        os.chdir(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight")) # change directory to the deconvolve directory
-        if os.path.exists("voxels3d_by_cuesXsubjs.npy"):
-            #### if the LSS file has already been created, just load that
-            voxels3d_by_cuesXsubjs = np.load("voxels3d_by_cuesXsubjs.npy")
-            #resids_data_list = pickle.load(open("searchlight_resids_list.p", "rb"))
-            sub_list = subject_list
-            print("loaded voxels3d_by_cuesXsubjs (numpy) and resids_data_list files")
-            print("shape of voxels3d_by_cuesXsubjs", voxels3d_by_cuesXsubjs.shape)
-            #print("size of resids_data_list", len(resids_data_list))
-        else:
-            voxels3d_by_cuesXsubjs=np.zeros( (dims[0],dims[1],dims[2],(8*len(subject_list))) )
-            resids_data_list = [] # make empty list... will be size==number of participants
-            for ind_s, subject in enumerate(subjects):
-                # change directory to the deconvolve directory
-                subname = subject.name
-                sub_list.append(subname)
-                os.chdir(subject.deconvolve_dir) 
-                print("\nLoading cue files for subject ",subname)
-                # loop through cues and load and save them in larger 4D matrix 
-                for ind_c, cue in enumerate(CUES):
-                    print("Loading cue file ", cue)
-                    iresp_file = os.path.join(subject.deconvolve_dir,("sub-"+subname+"_"+cue+"_FIR_MNI.nii.gz"))
-                    data_file = nib.load(iresp_file) # load data file
-                    fdata=data_file.get_fdata()
-                    print("cue file is shape: ",fdata.shape)
-                    fdata_avg = np.mean(fdata, axis=3) # take average over masked data (assumes 4th dimension is tents)
-                    print("avg cue file is shape: ",fdata_avg.shape)
-                    #data=nilearn.image.new_img_like(data_file, fdata_avg)
-                    index = ((ind_s*len(CUES))+ind_c)
-                    print(index)
-                    voxels3d_by_cuesXsubjs[:,:,:,index] = fdata_avg
-                # also load residuals file for this subject and mask so it's just the voxels
-                print("\nloading residuals file for subject ",subname)
-                resids_file = os.path.join(subject.deconvolve_dir, ("sub-"+subname+"_FIRmodel_errts_cues.nii.gz"))
-                resids_data_nii = nib.load(resids_file)
-                r_data = resids_data_nii.get_fdata()
-                cortical_masker = NiftiMasker(coritcal_mask)
-                resids_data = cortical_masker.fit_transform(resids_data_nii)
-                #resids_data = nilearn.masking.apply_mask(resids_data_nii,coritcal_masker) 
-                print("resids size: ",resids_data.shape,"\n")
-                resids_data_list.append(resids_data)
-                voxels_to_exclude = get_voxels_to_exclude_SL_version(r_data)
-                # if ind_s==1:
-                #     break # for testing purposes break early
-            # save voxels3d_by_cuesXsubjs (numpy array) and resids_data_list (list type)
-            np.save(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight", "voxels3d_by_cuesXsubjs.npy"), voxels3d_by_cuesXsubjs)
-            print(voxels3d_by_cuesXsubjs.shape)
-            pickle.dump(resids_data_list, open(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight", "searchlight_resids_list.p"), "wb"), protocol=4)
-        
-        #### this chunk just downsamples to 3m x 3m x 3m 
-        #img = nib.load(
-        #    THAL_HI_DIR + "fmriprep/sub-10001/func/sub-10001_task-ThalHi_run-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz")
-        # # # Convert above 4D array to a niftii image
-        imgs = nib.Nifti1Image(voxels3d_by_cuesXsubjs, affine=img.affine, header=img.header)
-        # resample imgs to 3x3x3
-        #template = load_mni152_template(resolution=3)
-
-        #resampled_imgs = resample_to_img(imgs, template)
-
-        #print(resampled_imgs.get_fdata().shape)
-
-        process_mask, process_mask_affine = masking._load_mask_img(coritcal_mask)
-        process_mask_coords = np.where(process_mask != 0)
-        process_mask_coords = coord_transform(
-            process_mask_coords[0], process_mask_coords[1],
-            process_mask_coords[2], process_mask_affine)
-        process_mask_coords = np.asarray(process_mask_coords).T
-        
-        X, A = _apply_mask_and_get_affinity(process_mask_coords, imgs, 10, True, mask_img=coritcal_mask)
-        # X is (cue*subj) by voxel
-        # A is (searchlight seed ) by voxel
-
-        num_of_spheres = X.shape[1]
-        num_subjects = len(subject_list)
-        ### here I am just creating a fake residual array for testing, it would be critical to make sure the residuals have the same dimension as num_of_spheres
-        fake_resid = np.random.random((num_subjects, 300, num_of_spheres)) #assuming 300 timepoints the same for every subject, if num of TRs not the same across subjects there is a way to hack this and make it way
-                                                                           # by putting in "zeros" to make all the subjects have the same num of TRs, then remove them later in the function. This has to be in ndarray 
-                                                                           # for the parallel computing to work 
-        
-        ### here I am restructring the A because the way pool works is to run parallel loops for "lists", so we need to restructure our data into lists, where each item in the list will be distributred to parallel loops
-        A_list = []
-        for n in np.arange(num_of_spheres):
-            A_list.append(A.rows[n])  # turning A from sparse matrix to list
-
-        ## now we are going to put X, A, and resid in "shared memory" so the parallel loop can access them
-        from multiprocessing import shared_memory
-        # create share memory buffer for X
-        X_shm = shared_memory.SharedMemory(create=True, size=X.nbytes)
-        # put a version of X in share memory
-        X_in_shm = np.ndarray(X.shape, buffer=X_shm.buf)
-        X_in_shm[:] = X[:]
-        del X # save memory
-        X_shm_name = X_shm.name # this is the memory space "name" of the share memory space that will feed into the parallel loop
-        X_dim = X_in_shm.shape
-
-        # create share memory buffer for residuals
-        fake_resid_shm = shared_memory.SharedMemory(create=True, size=fake_resid.nbytes)
-        # put a version of fake_resid in share memory
-        fake_resid_in_shm = np.ndarray(fake_resid.shape, buffer=fake_resid_shm.buf)
-        fake_resid_in_shm[:] = fake_resid[:]
-        del fake_resid # save memory
-        fake_resid_name = fake_resid_shm.name
-        fake_resid_dim = fake_resid_in_shm.shape
-
-        # I couldn't get "A" to turn into a format that is sharable via memory because it is either in list or scipy sparse matrix, can'ffigure out how to make that work
-        #A_shm = shared_memory.ShareableList(A_list)
-
-        #RSA_cues(searchlight_data, sphere_voxel_inds, cue_list, sub_list, resids_data_list)
-        import multiprocessing
-        ct = datetime.datetime.now()
-        print("pool setup time:-", ct)
-        pool = multiprocessing.Pool(80)
-        
-        test_num_of_sphere_seeds = len(A_list)
-        list_of_seeds = list(range(test_num_of_sphere_seeds))
-
-        input_lists = zip([X_shm_name]*test_num_of_sphere_seeds, [X_dim]*test_num_of_sphere_seeds,
-        A_list[0:test_num_of_sphere_seeds], 
-        [CUES]*test_num_of_sphere_seeds, 
-        [sub_list]*test_num_of_sphere_seeds, 
-        [fake_resid_name]*test_num_of_sphere_seeds,[fake_resid_dim]*test_num_of_sphere_seeds,
-        list_of_seeds) #this is crearte an iterable object putting all inputs into list of tuples, that will be upacked in the function. The length of this list is the numer of spheres
-        
-        ct = datetime.datetime.now()
-        print("start time:-", ct)
-        results = pool.map(RSA_cues_for_parallel, input_lists)
-        ct = datetime.datetime.now()
-        print("finish time:-", ct)
-        pool.close()
-        pool.join()
-        
-        # put output backinto brain space
-        def inverse_trans_stats(results, stats):
+    # # # Load template for getting size and converting to niftii format
+    img = nib.load(
+        THAL_HI_DIR + "fmriprep/sub-10001/func/sub-10001_task-ThalHi_run-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz")
+    dims=img.get_fdata().shape
+    # # # Load 8 cue files and create voxel by cue matrix (stacked by subject)
+    # # # Load errors from regressor for each subject too while we are at it
+    os.chdir(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight")) # change directory to the deconvolve directory
+    if os.path.exists("voxels3d_by_cuesXsubjs.npy"):
+        #### if the LSS file has already been created, just load that
+        voxels3d_by_cuesXsubjs = np.load("voxels3d_by_cuesXsubjs.npy")
+        resids_data_array = np.load("searchlight_resids_array.npy")
+        #resids_data_list = pickle.load(open("searchlight_resids_list.p", "rb"))
+        sub_list = subject_list
+        print("loaded voxels3d_by_cuesXsubjs (numpy) and resids_data_list files")
+        print("shape of voxels3d_by_cuesXsubjs", voxels3d_by_cuesXsubjs.shape)
+        #print("size of resids_data_list", len(resids_data_list))
+        print("shape of resids_data_array", resids_data_array.shape)
+    else:
+        voxels3d_by_cuesXsubjs=np.zeros( (dims[0],dims[1],dims[2],(8*len(subject_list))) )
+        resids_data_list = [] # make empty list... will be size==number of participants
+        for ind_s, subject in enumerate(subjects):
+            # change directory to the deconvolve directory
+            subname = subject.name
+            sub_list.append(subname)
+            os.chdir(subject.deconvolve_dir) 
+            print("\nLoading cue files for subject ",subname)
+            # loop through cues and load and save them in larger 4D matrix 
+            for ind_c, cue in enumerate(CUES):
+                print("Loading cue file ", cue)
+                iresp_file = os.path.join(subject.deconvolve_dir,("sub-"+subname+"_"+cue+"_FIR_MNI.nii.gz"))
+                data_file = nib.load(iresp_file) # load data file
+                fdata=data_file.get_fdata()
+                print("cue file is shape: ",fdata.shape)
+                fdata_avg = np.mean(fdata, axis=3) # take average over masked data (assumes 4th dimension is tents)
+                print("avg cue file is shape: ",fdata_avg.shape)
+                #data=nilearn.image.new_img_like(data_file, fdata_avg)
+                index = ((ind_s*len(CUES))+ind_c)
+                print(index)
+                voxels3d_by_cuesXsubjs[:,:,:,index] = fdata_avg
+            # also load residuals file for this subject and mask so it's just the voxels
+            print("\nloading residuals file for subject ",subname)
+            resids_file = os.path.join(subject.deconvolve_dir, ("sub-"+subname+"_FIRmodel_errts_cues.nii.gz"))
+            resids_data_nii = nib.load(resids_file)
+            r_data = resids_data_nii.get_fdata()
             cortical_masker = NiftiMasker(coritcal_mask)
-            cortical_masker.fit()
-            tmp_data = np.zeros(test_num_of_sphere_seeds)
-            for i in np.arange(test_num_of_sphere_seeds):
-                vox_idx = results[i]['sphere_idx']
-                tmp_data[vox_idx] = results[i][stats]
-            stat_nii = cortical_masker.inverse_transform(tmp_data)
-            return stat_nii
-        
-        context_img = inverse_trans_stats(results, "context_tval") 
-        task_img = inverse_trans_stats(results, "taskper_tval") 
-        feature_img = inverse_trans_stats(results, "relfeat_tval") 
-        
-        
-        # def testf(input):
-        #     res = input+1
-        #     return res
-        
-        # results = pool.map(testf, list(range(5)))
+            resids_data = cortical_masker.fit_transform(resids_data_nii)
+            #resids_data = nilearn.masking.apply_mask(resids_data_nii,coritcal_masker) 
+            print("resids size: ",resids_data.shape,"\n")
+            resids_data_list.append(resids_data)
+            voxels_to_exclude = get_voxels_to_exclude_SL_version(r_data)
+            # if ind_s==1:
+            #     break # for testing purposes break early
+        # save voxels3d_by_cuesXsubjs (numpy array) and resids_data_list (list type)
+        np.save(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight", "voxels3d_by_cuesXsubjs.npy"), voxels3d_by_cuesXsubjs)
+        print(voxels3d_by_cuesXsubjs.shape)
+        pickle.dump(resids_data_list, open(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight", "searchlight_resids_list.p"), "wb"), protocol=4)
+    
+    #### this chunk just downsamples to 3m x 3m x 3m 
+    #img = nib.load(
+    #    THAL_HI_DIR + "fmriprep/sub-10001/func/sub-10001_task-ThalHi_run-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz")
+    # # # Convert above 4D array to a niftii image
+    imgs = nib.Nifti1Image(voxels3d_by_cuesXsubjs, affine=img.affine, header=img.header)
+    # resample imgs to 3x3x3
+    #template = load_mni152_template(resolution=3)
 
-        # sl_obj = searchlight.SearchLight(
-        #     coritcal_mask, RSA_cues,
-        #     [CUES, subject_list, resids_data_list], verbose=1, radius=10., n_jobs=#)
-        #     subject_lss_data.trial_df.Cue.to_numpy(), CUES, subject_lss_data.trial_df.Run.to_numpy()], verbose=1, radius=10., n_jobs=args.cores, process_mask_img=coritcal_mask)
-        # sl_obj.run(resampled_imgs)
-        # Evan's output was a list
-        # # output is a list that stores the output from my RSA_cues function 
-        # print(sl_obj.output)
-        # #### this uses pickle to save my output
-        # pickle.dump(sl_obj, open(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight" "searchlight_rsa.p"), "wb"), protocol=4)
+    #resampled_imgs = resample_to_img(imgs, template)
 
+    #print(resampled_imgs.get_fdata().shape)
 
+    process_mask, process_mask_affine = masking._load_mask_img(coritcal_mask)
+    process_mask_coords = np.where(process_mask != 0)
+    process_mask_coords = coord_transform(
+        process_mask_coords[0], process_mask_coords[1],
+        process_mask_coords[2], process_mask_affine)
+    process_mask_coords = np.asarray(process_mask_coords).T
+    
+    X, A = _apply_mask_and_get_affinity(process_mask_coords, imgs, 10, True, mask_img=coritcal_mask)
+    # X is (cue*subj) by voxel
+    # A is (searchlight seed ) by voxel
 
+    num_of_spheres = X.shape[1]
+    num_subjects = len(subject_list)
+    # ### here I am just creating a fake residual array for testing, it would be critical to make sure the residuals have the same dimension as num_of_spheres
+    # fake_resid = np.random.random((num_subjects, 300, num_of_spheres)) #assuming 300 timepoints the same for every subject, if num of TRs not the same across subjects there is a way to hack this and make it way
+    #                                                                    # by putting in "zeros" to make all the subjects have the same num of TRs, then remove them later in the function. This has to be in ndarray 
+    #                                                                    # for the parallel computing to work 
+    
+    ### here I am restructring the A because the way pool works is to run parallel loops for "lists", so we need to restructure our data into lists, where each item in the list will be distributred to parallel loops
+    A_list = []
+    for n in np.arange(num_of_spheres):
+        A_list.append(A.rows[n])  # turning A from sparse matrix to list
+
+    ## now we are going to put X, A, and resid in "shared memory" so the parallel loop can access them
+    from multiprocessing import shared_memory
+    # create share memory buffer for X
+    X_shm = shared_memory.SharedMemory(create=True, size=X.nbytes)
+    # put a version of X in share memory
+    X_in_shm = np.ndarray(X.shape, buffer=X_shm.buf)
+    X_in_shm[:] = X[:]
+    #del X # save memory
+    X_shm_name = X_shm.name # this is the memory space "name" of the share memory space that will feed into the parallel loop
+    X_dim = X_in_shm.shape
+
+    # # create share memory buffer for residuals
+    # fake_resid_shm = shared_memory.SharedMemory(create=True, size=fake_resid.nbytes)
+    # # put a version of fake_resid in share memory
+    # fake_resid_in_shm = np.ndarray(fake_resid.shape, buffer=fake_resid_shm.buf)
+    # fake_resid_in_shm[:] = fake_resid[:]
+    # del fake_resid # save memory
+    # fake_resid_name = fake_resid_shm.name
+    # fake_resid_dim = fake_resid_in_shm.shape
+
+    # create share memory buffer for residuals
+    resid_shm = shared_memory.SharedMemory(create=True, size=resids_data_array.nbytes)
+    # put a version of resids_data_array in share memory
+    resid_in_shm = np.ndarray(resids_data_array.shape, buffer=resid_shm.buf)
+    resid_in_shm[:] = resids_data_array[:]
+    #del resids_data_array # save memory
+    resid_name = resid_shm.name
+    resid_dim = resid_in_shm.shape
+
+    # I couldn't get "A" to turn into a format that is sharable via memory because it is either in list or scipy sparse matrix, can'ffigure out how to make that work
+    #A_shm = shared_memory.ShareableList(A_list)
+
+    #RSA_cues(searchlight_data, sphere_voxel_inds, cue_list, sub_list, resids_data_list)
+    ct = datetime.datetime.now()
+    print("pool setup time:-", ct)
+    pool = multiprocessing.Pool(80)
+    
+    test_num_of_sphere_seeds = len(A_list)
+    list_of_seeds = list(range(test_num_of_sphere_seeds))
+
+    input_lists = zip([X_shm_name]*test_num_of_sphere_seeds, [X_dim]*test_num_of_sphere_seeds,
+    A_list[0:test_num_of_sphere_seeds], 
+    [CUES]*test_num_of_sphere_seeds, 
+    [sub_list]*test_num_of_sphere_seeds, 
+    [resid_name]*test_num_of_sphere_seeds,[resid_dim]*test_num_of_sphere_seeds,
+    list_of_seeds) #this is crearte an iterable object putting all inputs into list of tuples, that will be upacked in the function. The length of this list is the numer of spheres
+    
+    ct = datetime.datetime.now()
+    print("start time:-", ct)
+    results = pool.map(RSA_cues_for_parallel, input_lists)
+    ct = datetime.datetime.now()
+    print("finish time:-", ct)
+    pool.close()
+    pool.join()
+    
+    #need to close shared_memory
+    #resid_shm.close()
+    #resid_shm.unlink()
+    #X_shm.close()
+    #X_shm.unlink()
+
+    # put output backinto brain space
+    def inverse_trans_stats(results, stats):
+        cortical_masker = NiftiMasker(coritcal_mask)
+        cortical_masker.fit()
+        tmp_data = np.zeros(test_num_of_sphere_seeds)
+        for i in np.arange(test_num_of_sphere_seeds):
+            vox_idx = results[i]['sphere_idx']
+            tmp_data[vox_idx] = results[i][stats]
+        stat_nii = cortical_masker.inverse_transform(tmp_data)
+        return stat_nii
+    
+    context_img = inverse_trans_stats(results, "context_tval") 
+    task_img = inverse_trans_stats(results, "taskper_tval") 
+    feature_img = inverse_trans_stats(results, "relfeat_tval") 
+    context_img.to_filename(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight","Context_tval.nii"))
+    task_img.to_filename(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight","TaskPerformed_tval.nii"))
+    feature_img.to_filename(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight","RelevantFeature_tval.nii"))
+    
+### Test the speed of noise covariance calculation
+ct = datetime.datetime.now()
+print("start time:-", ct)
+resids_data = resids_data_array[2,:,8500:8756]
+reduced_resids_data = remove_censored_data_noise_version(resids_data)
+noise_pres_res = rsatoolbox.data.noise.prec_from_residuals(reduced_resids_data, method='shrinkage_diag') # method='diag')
+print("noise cov shape without transpose:", noise_pres_res.shape)
+ct = datetime.datetime.now()
+print("end time:-", ct)
 
