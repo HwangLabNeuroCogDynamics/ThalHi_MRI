@@ -1,13 +1,9 @@
 ## testing Steph's RSA regression
 from nilearn.image import resample_to_img
 from thalpy import base
-from sklearn.linear_model import RidgeClassifier
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.svm import SVC
 import sys
 from thalhi.decoding import SubjectLssTentData
 from thalhi.rsa.repsimanalyze import RSA_cues,apply_mask,get_voxels_to_exclude_SL_version
-from sklearn.multiclass import OneVsRestClassifier
 import os
 #from thalpy.decoding import searchlight
 from thalpy import masks
@@ -16,8 +12,6 @@ from nilearn.datasets import load_mni152_template
 from nilearn.input_data import NiftiMasker
 import rsatoolbox
 import numpy as np
-#from joblib import Parallel, delayed, cpu_count
-from sklearn.exceptions import ConvergenceWarning
 from nilearn import masking
 from nilearn.image.resampling import coord_transform
 from nilearn.maskers.nifti_spheres_masker import _apply_mask_and_get_affinity
@@ -27,9 +21,6 @@ import nibabel as nib
 import nilearn
 import nilearn.masking
 import pandas as pd
-from sklearn.model_selection import GroupKFold
-from sklearn.preprocessing import label_binarize
-from sklearn.metrics import roc_curve, auc
 import matplotlib.pyplot as plt
 import statistics
 import statsmodels.api as sm
@@ -206,12 +197,19 @@ def get_voxels_to_exclude_SL_version(r_data):
     return voxels_to_exclude
 
 def remove_censored_data_noise_version(resids_data):
-    reduced_resids_data=[]
-    for tpt in range(resids_data.shape[0]):
-        if resids_data[tpt,1]!=0:
-            reduced_resids_data.append(resids_data[tpt,:])
-    reduced_resids_data=np.array(reduced_resids_data)
+    # resids_data dim order should be [trs, voxels]
+    # if resids_data[0]>20000:
+    #     print("diminsions not in correct order... transposing resids data now... new shape will be",resids_data.T.shape)
+    #     resids_data = resids_data.T
+    resid_vec = np.mean(resids_data,axis=1)
+    reduced_resids_data = resids_data[resid_vec!=0,:] # vectorize it, faster!
+    # reduced_resids_data=[]
+    # for tpt in range(resids_data.shape[0]):
+    #     if resid_vec[tpt]!=0:
+    #         reduced_resids_data.append(resids_data[tpt,:])
+    # reduced_resids_data=np.array(reduced_resids_data)
     #print("masked residual data is NOW a numpy array of size: ", reduced_resids_data.shape)
+    # reduced_resids_data dim order should be trs x voxels
     return reduced_resids_data
 
 # ----- FORMATTING/CONVERSION FUNCTIONS ------ #
@@ -561,12 +559,14 @@ def RSA_cues_for_parallel(inputs):
         # get rid of voxels with zeros
         try:
             resids_data = resids_data_list[ind,:,usable_vox_arr]
-            reduced_resids_data = remove_censored_data_noise_version(resids_data)
-            noise_pres_res = rsatoolbox.data.noise.prec_from_residuals(reduced_resids_data, method = 'shrinkage_diag') # ='diag'
+            #print(resids_data.shape) # this is now vox by TR
+            reduced_resids_data = remove_censored_data_noise_version(resids_data.T) #transposing makes it TR by vox, which is what the function wants
+            #print(reduced_resids_data.shape)
+            noise_pres_res = rsatoolbox.data.noise.prec_from_residuals(reduced_resids_data, method = 'diag') # ='diag'
             if np.any(np.isnan(noise_pres_res)):
                 noise_pres_res = np.identity(len(usable_vox_list))
                 any_error = True
-                err_type = 'noise_creation'
+                err_type = 'noise_creation_nan'
         except:
             #print("encountered an exception with creating the noise object")
             noise_pres_res = np.identity(len(usable_vox_list))
@@ -805,11 +805,7 @@ if True:
     pool.close()
     pool.join()
     
-    #need to close shared_memory
-    #resid_shm.close()
-    #resid_shm.unlink()
-    #X_shm.close()
-    #X_shm.unlink()
+
 
     # put output backinto brain space
     def inverse_trans_stats(results, stats):
@@ -825,17 +821,27 @@ if True:
     context_img = inverse_trans_stats(results, "context_tval") 
     task_img = inverse_trans_stats(results, "taskper_tval") 
     feature_img = inverse_trans_stats(results, "relfeat_tval") 
-    context_img.to_filename(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight","Context_tval.nii"))
-    task_img.to_filename(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight","TaskPerformed_tval.nii"))
-    feature_img.to_filename(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight","RelevantFeature_tval.nii"))
+    context_img.to_filename(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight","Context_tval_eye.nii"))
+    task_img.to_filename(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight","TaskPerformed_tval_eye.nii"))
+    feature_img.to_filename(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight","RelevantFeature_tval_eye.nii"))
+
+    pickle.dump(results, open(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight", "searchlight_rsa_eye_results.p"), "wb"), protocol=4)    
+    pickle.dump(A_list, open(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight", "A_list.p"), "wb"), protocol=4)    
+    pickle.dump(X, open(os.path.join("/Shared","lss_kahwang_hpc","ThalHi_MRI_2020","RSA","searchlight", "X.p"), "wb"), protocol=4)
     
+    #need to close shared_memory
+    resid_shm.close()
+    resid_shm.unlink()
+    X_shm.close()
+    X_shm.unlink()
+
 ### Test the speed of noise covariance calculation
-ct = datetime.datetime.now()
-print("start time:-", ct)
-resids_data = resids_data_array[2,:,8500:8756]
-reduced_resids_data = remove_censored_data_noise_version(resids_data)
-noise_pres_res = rsatoolbox.data.noise.prec_from_residuals(reduced_resids_data, method='shrinkage_diag') # method='diag')
-print("noise cov shape without transpose:", noise_pres_res.shape)
-ct = datetime.datetime.now()
-print("end time:-", ct)
+# ct = datetime.datetime.now()
+# print("start time:-", ct)
+# resids_data = resids_data_array[2,:,8500:8756]
+# reduced_resids_data = remove_censored_data_noise_version(resids_data)
+# noise_pres_res = rsatoolbox.data.noise.prec_from_residuals(reduced_resids_data, method='shrinkage_diag') # method='diag')
+# print("noise cov shape without transpose:", noise_pres_res.shape)
+# ct = datetime.datetime.now()
+# print("end time:-", ct)
 
