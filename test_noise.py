@@ -27,7 +27,7 @@ for i, s in enumerate(subjects):
     data = np.squeeze(data)
     f = new_img_like(f,data)
 
-    Stay_beta_ses1 = index_img(f,5) ## these are the betas from the FIR, not t stat
+    EDS_beta_ses1 = index_img(f,5) ## these are the betas from the FIR, not t stat
     IDS_beta_ses1 = index_img(f,8)
     Stay_beta_ses1 = index_img(f,11)
 
