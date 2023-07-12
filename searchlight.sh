@@ -3,12 +3,12 @@
 #$ -q SEASHORE
 #$ -pe smp 4
 #$ -t 1-50
-#$ -tc 15
+#$ -tc 21
 #$ -ckpt user
 #$ -o /Users/kahwang/sge_logs/
 #$ -e /Users/kahwang/sge_logs/
 /bin/echo Running on compute node: `hostname`.
-source activate py3
+source activate py3.8
 /bin/echo Job: $JOB_ID
 /bin/echo Task: $SGE_TASK_ID
 /bin/echo In directory: `pwd`
