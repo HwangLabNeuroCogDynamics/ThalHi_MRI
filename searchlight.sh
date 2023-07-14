@@ -3,7 +3,7 @@
 #$ -q SEASHORE
 #$ -pe smp 4
 #$ -t 1-50
-#$ -tc 21
+#$ -tc 24
 #$ -ckpt user
 #$ -o /Users/kahwang/sge_logs/
 #$ -e /Users/kahwang/sge_logs/
