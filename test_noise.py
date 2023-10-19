@@ -42,8 +42,8 @@ for s in np.arange(59):
     R_V[s] = np.sqrt(vU) / np.sqrt(vU+vE)
 
 
-sns.pointplot(R_V, R)
-
+sns.scatterplot(x=R,y=R_V)
+plt.show()
 
 #### OLD STUFF, IGNORE
 # data_path = "/home/kahwang/bsh/ThalHi_MRI_2020/3dDeconvolve/"
