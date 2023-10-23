@@ -13,7 +13,7 @@ import rsatoolbox
 import sklearn
 from scipy.spatial.distance import cosine
 from scipy.spatial.distance import euclidean
-from scipy.stats import pearsonr, zscore
+from scipy.stats import pearsonr, zscore, spearmanr
 import scipy.stats as stats
 from mlxtend.evaluate import permutation_test
 import datetime
@@ -52,9 +52,9 @@ def cal_reliability(x,y):
     R_V = np.sqrt(vU) / np.sqrt(vU+vE)
     return R_V
 
-def cal_EV(y,x): # encountering the same amplitdue scaling issue, looks like pearsonR is still the best option
-    EV = 1-(np.sum((y-x)**2) / np.sum((y)**2))
-    return EV
+# def cal_EV(y,x): # encountering the same amplitdue scaling issue, looks like pearson r is still the best option
+#     EV = np.sqrt(np.sum((y)**2)) / np.sqrt(np.sum((y-x)**2) + np.sum((y)**2))
+#     return EV
 
 ## load thalamus evoke response.
 # note, looks like these are z scored?
@@ -90,14 +90,6 @@ for clust in ['0001','0002','0004','0005']:
     # looks like this is not normalized should we normalize this..? in the paper it seems to suggest it is zscored
     ctx_results = read_object('/mnt/nfs/lss/lss_kahwang_hpc/data/ThalHi/Activity_Flow/noise_ceiling/rsa_af/evrs/Context/59subs_run14_run58_tent_evoked_response_clust_{}.p'.format(clust))
 
-    ### calculate similarity
-    EDS_ses1_r = np.zeros(59)
-    EDS_ses2_r = np.zeros(59)
-    IDS_ses1_r = np.zeros(59)
-    IDS_ses2_r = np.zeros(59)
-    Stay_ses1_r = np.zeros(59)
-    Stay_ses2_r = np.zeros(59)
-
     ## calculate model reliability
     EDS_afR = np.zeros(59)
     IDS_afR = np.zeros(59)
@@ -120,6 +112,14 @@ for clust in ['0001','0002','0004','0005']:
     IDS_R = np.sqrt(IDS_afR*IDS_ctxR)
     Stay_R = np.sqrt(Stay_afR*Stay_ctxR)
 
+    ### calculate similarity
+    EDS_ses1_r = np.zeros(59)
+    EDS_ses2_r = np.zeros(59)
+    IDS_ses1_r = np.zeros(59)
+    IDS_ses2_r = np.zeros(59)
+    Stay_ses1_r = np.zeros(59)
+    Stay_ses2_r = np.zeros(59)
+    
     for s in np.arange(59):
         # cross validation, compare observed from ses2 to predicted from ses1
         EDS_ses1_r[s] =  pearsonr(zscore(ctx_results[s][2]['EDS']), EDS_ses1[s,:])[0] / EDS_afR[s]  # only normalized by model reliability, thoguh using wholeR gave similar results
