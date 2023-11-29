@@ -85,7 +85,6 @@ resp_map = Schaefer400_masker.fit_transform(rsa_betas + "sub-10003_Resp_beta_map
 # here I invented a PC like measure... 
 rsa_betas = np.array([context_map, feature_map, task_map, resp_map])
 rsa_betas = np.squeeze(rsa_betas).T #ROI by beta
-
 beta_sum = np.sum(np.abs(rsa_betas), axis=1) #sum total beta weight for each ROI.
 kis = np.zeros(np.shape(beta_sum)[0])
 for c in np.arange(4):

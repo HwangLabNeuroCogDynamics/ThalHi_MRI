@@ -5,7 +5,7 @@ Schaefer400 = nib.load('//mnt/nfs/lss/lss_kahwang_hpc/ROIs/Schaefer2018_400Parce
 Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
 
 
-PC =  Schaefer400_masker.fit_transform("/mnt/nfs/lss/lss_kahwang_hpc/data/ThalHi/hubs/Voxelwise_4mm_MGH_zPC.nii")
+PC =  Schaefer400_masker.fit_transform("/mnt/nfs/lss/lss_kahwang_hpc/data/ThalHi/hubs/MGH_PC.nii")
 stats = ["Context", "CxCO", "CxSH", "Task_Performed", "Resp", "CxCOxTP", "CxSHxTP"]
 
 for stat in stats:
