@@ -2,11 +2,12 @@
 #$ -N thalhi_sl
 #$ -q SEASHORE
 #$ -pe smp 24
-#$ -t 1-73
+#$ -t 71
 #$ -tc 6
 #$ -ckpt user
 #$ -o /Users/kahwang/sge_logs/
 #$ -e /Users/kahwang/sge_logs/
+#1-73
 /bin/echo Running on compute node: `hostname`.
 source activate py3.8
 /bin/echo Job: $JOB_ID
