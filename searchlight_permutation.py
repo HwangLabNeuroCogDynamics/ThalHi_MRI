@@ -1,4 +1,4 @@
-# implement permtuation / bootsraping statistics based on:
+#Implement permtuation / bootsraping statistics based on:
 #Stelzer, J., Chen, Y., & Turner, R. (2013). Statistical inference and multiple testing correction in classification-based 
 # multi-voxel pattern analysis (MVPA): random permutations and cluster size control. Neuroimage, 65, 69-82.
 
@@ -28,17 +28,6 @@ for i in range(10000):
 thresh = np.percentile(bootstrap_null, 99.9, axis=0) #two tail test
 mask = nib.load("/mnt/nfs/lss/lss_kahwang_hpc/ROIs/Morel_2.5_mask.nii.gz")
 
-#cluster size from null distribution
-# clust_null = np.zeros(10000)
-# for i in range(10000):
-#     th_vec = bootstrap_null[i,:] > thresh
-#     #turn this imag back to 3D volum space, and then find the connected cluster
-#     null_img = nilearn.masking.unmask(th_vec, mask).get_fdata() # return back to 3D space
-#     x, _ = label(null_img)  #find connected cluster
-#     try:
-#         clust_null[i] = np.max(np.bincount(x.flatten())[1:])  #what is the max clust size
-#     except:
-#         continue # no clusters found
 
 ### below is parallel verion of the same code. MUCH FASTER!!
 from joblib import Parallel, delayed

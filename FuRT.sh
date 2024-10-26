@@ -1,7 +1,7 @@
 # include RT regressor into the 3dDeconvolve model.
 #$ -N FuRT
 #$ -q SEASHORE
-#$ -pe smp 8
+#$ -pe smp 4
 #$ -t 1-73
 #$ -tc 19
 #$ -ckpt user
