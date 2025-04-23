@@ -3,7 +3,7 @@
 #$ -q SEASHORE
 #$ -pe smp 4
 #$ -t 1-73
-#$ -tc 60
+#$ -tc 20
 #$ -ckpt user
 #$ -o /Users/kahwang/sge_logs/
 #$ -e /Users/kahwang/sge_logs/
@@ -49,16 +49,17 @@ singularity run --cleanenv /Shared/lss_kahwang_hpc/opt/afni/afni.sif \
 -mask /Shared/lss_kahwang_hpc/data/ThalHi/3dDeconvolve_fdpt4/sub-${subject}/combined_mask+tlrc.BRIK \
 -polort 0 \
 -concat '1D: 0 216 432 648 864 1080 1296 1512' \
--num_stimts 1 -local_times \
+-num_stimts 2 -local_times \
 -censor /Shared/lss_kahwang_hpc/data/ThalHi/3dDeconvolve_fdpt4/sub-${subject}/censor.1D \
 -stim_times_IM 1 /Shared/lss_kahwang_hpc/data/ThalHi/3dDeconvolve_fdpt4/sub-${subject}/cue_stimtimes.1D SPMG -stim_label 1 cue \
--x1D /Shared/lss_kahwang_hpc/data/ThalHi/3dDeconvolve_fdpt4/sub-${subject}/cue_IM.xmat.1D -x1D_stop -allzero_OK -jobs 4
+-stim_times_AM1 2 /Shared/lss_kahwang_hpc/data/ThalHi/3dDeconvolve_fdpt4/sub-${subject}/trial_RT.1D SPMG -stim_label 2 RT \
+-x1D /Shared/lss_kahwang_hpc/data/ThalHi/3dDeconvolve_fdpt4/sub-${subject}/cue_rtcov_IM.xmat.1D -x1D_stop -allzero_OK -jobs 4
 
 singularity run --cleanenv /Shared/lss_kahwang_hpc/opt/afni/afni.sif \
 3dLSS -input /Shared/lss_kahwang_hpc/data/ThalHi/3dDeconvolve_fdpt4/sub-${subject}/lss_errts.nii.gz \
 -mask /Shared/lss_kahwang_hpc/data/ThalHi/3dDeconvolve_fdpt4/sub-${subject}/combined_mask+tlrc.BRIK \
--matrix /Shared/lss_kahwang_hpc/data/ThalHi/3dDeconvolve_fdpt4/sub-${subject}/cue_IM.xmat.1D \
--prefix /Shared/lss_kahwang_hpc/data/ThalHi/3dDeconvolve_fdpt4/sub-${subject}/cue.3dT.LSS.nii.gz
+-matrix /Shared/lss_kahwang_hpc/data/ThalHi/3dDeconvolve_fdpt4/sub-${subject}/cue_rtcov_IM.xmat.1D \
+-prefix /Shared/lss_kahwang_hpc/data/ThalHi/3dDeconvolve_fdpt4/sub-${subject}/cue_rtcov_IM.LSS.nii.gz
 
 
 
